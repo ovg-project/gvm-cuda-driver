@@ -20,6 +20,8 @@
 #include "ringbuffer.h"
 #include "utils.h"
 
+#define CUDA_EVENT_BATCH_SIZE 64
+
 extern entry_t cuda_library_entry[];
 
 // FIXME: this is not thread safe
@@ -103,37 +105,37 @@ CUresult cuLaunchKernel(const void* f,
 	CUresult ret;
 	CUdevice device;
 	CUuuid uuid;
-
-	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuCtxGetDevice, &device);
-	if (ret != CUDA_SUCCESS)
-		fprintf(stderr, "cuCtxGetDevice: error code %d\n", ret);
-	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuDeviceGetUuid, &uuid, device);
-	if (ret != CUDA_SUCCESS)
-		fprintf(stderr, "cuDeviceGetUuid: error code %d\n", ret);
-
-	if (g_uvmfd >= 0 && update_event_count(g_uvmfd, uuid, UVM_SUBMIT_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, 1) < 0) {
-		fprintf(stderr, "update_event_count: unknown reason\n");
-	}
-
  	struct ringbuffer_element *elem;
- 	if (rb_enqueue_start(&g_event_rb, &elem, true) != 0)
- 		fprintf(stderr, "rb_enqueue: Unknown error\n");
-
-	if (rb_elem_is_valid(elem))
-		fprintf(stderr, "rb_elem_is_valid: Unknown error\n");
-
-	elem->uuid = uuid;
 
 	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuLaunchKernel, f, gridDimX, gridDimY, gridDimZ,
 			blockDimX, blockDimY, blockDimZ,
 			sharedMemBytes, hStream, kernelParams, extra);
 
-	atomic_fetch_add_explicit(&submitted, 1, memory_order_relaxed);
+	if ((atomic_fetch_add_explicit(&submitted, 1, memory_order_relaxed) + 1) % CUDA_EVENT_BATCH_SIZE == 0) {
+		if (rb_enqueue_start(&g_event_rb, &elem, true) != 0)
+ 			fprintf(stderr, "rb_enqueue: Unknown error\n");
 
-	CUDA_ENTRY_CALL(cuda_library_entry, cuEventRecord, elem->event, hStream);
+		if (rb_elem_is_valid(elem))
+			fprintf(stderr, "rb_elem_is_valid: Unknown error\n");
 
-	if (rb_enqueue_end(&g_event_rb, elem) != 0)
-		fprintf(stderr, "rb_enqueue_end: Unknown error\n");
+		ret = CUDA_ENTRY_CALL(cuda_library_entry, cuCtxGetDevice, &device);
+		if (ret != CUDA_SUCCESS)
+			fprintf(stderr, "cuCtxGetDevice: error code %d\n", ret);
+		ret = CUDA_ENTRY_CALL(cuda_library_entry, cuDeviceGetUuid, &uuid, device);
+		if (ret != CUDA_SUCCESS)
+			fprintf(stderr, "cuDeviceGetUuid: error code %d\n", ret);
+
+		elem->uuid = uuid;
+
+		if (g_uvmfd >= 0 && update_event_count(g_uvmfd, uuid, UVM_SUBMIT_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, CUDA_EVENT_BATCH_SIZE) < 0) {
+			fprintf(stderr, "update_event_count: unknown reason\n");
+		}
+
+		CUDA_ENTRY_CALL(cuda_library_entry, cuEventRecord, elem->event, hStream);
+
+		if (rb_enqueue_end(&g_event_rb, elem) != 0)
+			fprintf(stderr, "rb_enqueue_end: Unknown error\n");
+	}
 
 	return ret;
 }
@@ -214,7 +216,7 @@ static void *event_handler(void *arg) {
 			if (CUDA_ENTRY_CALL(cuda_library_entry, cuEventQuery, elem->event) != CUDA_SUCCESS)
 				break;
 
-			if (g_uvmfd >= 0 && update_event_count(g_uvmfd, elem->uuid, UVM_END_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, 1) < 0) {
+			if (g_uvmfd >= 0 && update_event_count(g_uvmfd, elem->uuid, UVM_END_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, CUDA_EVENT_BATCH_SIZE) < 0) {
 				fprintf(stderr, "update_event_count: unknown reason\n");
 			}
 
