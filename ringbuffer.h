@@ -13,6 +13,7 @@ extern entry_t cuda_library_entry[];
 
 struct ringbuffer_element {
 	CUevent event;
+	CUuuid uuid;
 	_Atomic bool valid;  // used as a "commit" flag
 };
 

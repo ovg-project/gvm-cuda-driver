@@ -18,6 +18,7 @@
 
 #include "helper.h"
 #include "ringbuffer.h"
+#include "utils.h"
 
 extern entry_t cuda_library_entry[];
 
@@ -26,6 +27,8 @@ static int64_t g_cuda_mem_allocated = 0;
 static int64_t g_cuda_mem_total = 0UL;
 
 static const size_t g_rb_size = 1048576;
+
+static int g_uvmfd = -1;
 
 static struct ringbuffer g_event_rb;
 
@@ -46,6 +49,11 @@ CUresult cuMemAlloc(void **devPtr, size_t size) {
 		CUDA_ENTRY_CALL(cuda_library_entry, cuMemGetInfo_v2, &_cuda_mem_free, &_cuda_mem_total);
 		g_cuda_mem_total = _cuda_mem_total;
 	}
+	if (g_uvmfd < 0) {
+		g_uvmfd = find_initialized_uvm();
+		printf("Find uvmfd at %d\n", g_uvmfd);
+	}
+
 	if (g_cuda_mem_allocated + size > g_cuda_mem_total) {
 		fprintf(stderr, "[INTERCEPTOR] cuMemAlloc: out of memory.\n");
 		return CUDA_ERROR_OUT_OF_MEMORY;
@@ -93,6 +101,19 @@ CUresult cuLaunchKernel(const void* f,
 		unsigned int blockDimX, unsigned int blockDimY, unsigned int blockDimZ,
 		unsigned int sharedMemBytes, CUstream hStream, void** kernelParams, void** extra) {
 	CUresult ret;
+	CUdevice device;
+	CUuuid uuid;
+
+	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuCtxGetDevice, &device);
+	if (ret != CUDA_SUCCESS)
+		fprintf(stderr, "cuCtxGetDevice: error code %d\n", ret);
+	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuDeviceGetUuid, &uuid, device);
+	if (ret != CUDA_SUCCESS)
+		fprintf(stderr, "cuDeviceGetUuid: error code %d\n", ret);
+
+	if (g_uvmfd >= 0 && update_event_count(g_uvmfd, uuid, UVM_SUBMIT_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, 1) < 0) {
+		fprintf(stderr, "update_event_count: unknown reason\n");
+	}
 
  	struct ringbuffer_element *elem;
  	if (rb_enqueue_start(&g_event_rb, &elem, true) != 0)
@@ -100,6 +121,8 @@ CUresult cuLaunchKernel(const void* f,
 
 	if (rb_elem_is_valid(elem))
 		fprintf(stderr, "rb_elem_is_valid: Unknown error\n");
+
+	elem->uuid = uuid;
 
 	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuLaunchKernel, f, gridDimX, gridDimY, gridDimZ,
 			blockDimX, blockDimY, blockDimZ,
@@ -180,8 +203,6 @@ size_t gettime_ms(void) {
 static void *event_handler(void *arg) {
 	struct ringbuffer *rb = (struct ringbuffer *)arg;
 	struct ringbuffer_element *elem = NULL;
-	size_t print_timestamp_ms = gettime_ms();
-	size_t count = 0;
 
 	while (running) {
 		while (rb_peek(rb, &elem, false) == 0) {
@@ -193,14 +214,12 @@ static void *event_handler(void *arg) {
 			if (CUDA_ENTRY_CALL(cuda_library_entry, cuEventQuery, elem->event) != CUDA_SUCCESS)
 				break;
 
-			count += 1;
+			if (g_uvmfd >= 0 && update_event_count(g_uvmfd, elem->uuid, UVM_END_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, 1) < 0) {
+				fprintf(stderr, "update_event_count: unknown reason\n");
+			}
+
 			if (rb_dequeue(rb, elem) != 0)
 				fprintf(stderr, "rb_dequeue: Unknown error\n");
-		}
-
-		if (gettime_ms() - print_timestamp_ms > 1000) {
-			fprintf(stderr, "Submit count %lld, %s count %lld\n", atomic_load_explicit(&submitted, memory_order_relaxed), rb->name, count);
-			print_timestamp_ms = gettime_ms();
 		}
 	}
 
