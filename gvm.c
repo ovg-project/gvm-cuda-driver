@@ -52,7 +52,16 @@ CUresult cuMemAlloc(void **devPtr, size_t size) {
 		g_cuda_mem_total = _cuda_mem_total;
 	}
 	if (g_uvmfd < 0) {
-		g_uvmfd = find_initialized_uvm();
+		CUdevice device;
+		CUuuid uuid;
+		ret = CUDA_ENTRY_CALL(cuda_library_entry, cuCtxGetDevice, &device);
+		if (ret != CUDA_SUCCESS)
+			fprintf(stderr, "cuCtxGetDevice: error code %d\n", ret);
+		ret = CUDA_ENTRY_CALL(cuda_library_entry, cuDeviceGetUuid, &uuid, device);
+		if (ret != CUDA_SUCCESS)
+			fprintf(stderr, "cuDeviceGetUuid: error code %d\n", ret);
+
+		g_uvmfd = find_initialized_uvm(uuid);
 		printf("Find uvmfd at %d\n", g_uvmfd);
 	}
 

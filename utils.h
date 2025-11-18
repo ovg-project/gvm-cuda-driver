@@ -13,7 +13,8 @@
 #define UVM_IS_INITIALIZED 80
 typedef struct
 {
-	bool					initialized;    // IN/OUT
+	CUuuid					uuid;			// IN
+	bool					initialized;    // OUT
 	int						rmStatus;		// OUT
 } UVM_IS_INITIALIZED_PARAMS;
 
@@ -43,7 +44,7 @@ typedef struct
 	int rmStatus;
 } UVM_UPDATE_EVENT_COUNT_PARAMS;
 
-int find_initialized_uvm(void)
+int find_initialized_uvm(CUuuid uuid)
 {
 	pid_t pid = getpid();
 	char fd_dir[64];
@@ -91,15 +92,16 @@ int find_initialized_uvm(void)
 			continue;
 		}
 
-		UVM_IS_INITIALIZED_PARAMS params;
-		memset(&params, 0, sizeof(params));
-		// If initialized is a bool/NvBool, zero-init is enough; otherwise:
-		// params.initialized = 0;
-		// params.rmStatus	= 0;
+		UVM_IS_INITIALIZED_PARAMS params = {
+			.uuid = uuid,
+			.initialized = 0,
+			.rmStatus = 0
+		};
 
-		if (ioctl(fd, UVM_IS_INITIALIZED, &params) == 0) {
+		if (ioctl(fd, UVM_IS_INITIALIZED, &params) == 0 && params.rmStatus == 0) {
 			if (params.initialized) {
 				ret = fd;
+				break;
 			}
 		} else {
 			fprintf(stderr, "Failed to check UVM initialization on fd %d: %s\n",
