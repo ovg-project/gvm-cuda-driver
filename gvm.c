@@ -21,6 +21,7 @@
 #include "utils.h"
 
 #define CUDA_EVENT_BATCH_SIZE 64
+#define CUDA_EVENT_INTERVAL_MS 8
 
 extern entry_t cuda_library_entry[];
 
@@ -35,6 +36,8 @@ static int g_uvmfd = -1;
 static struct ringbuffer g_event_rb;
 
 static _Atomic size_t submitted;
+static _Atomic size_t submitted_at_event;
+static _Atomic size_t timestamp_at_event;
 
 CUresult cuGetProcAddress(const char *symbol, void **pfn, int cudaVersion, cuuint64_t flags,
 		CUdriverProcAddressQueryResult *symbolStatus);
@@ -106,12 +109,21 @@ CUresult cuLaunchKernel(const void* f,
 	CUdevice device;
 	CUuuid uuid;
  	struct ringbuffer_element *elem;
+	size_t new_submitted_at_event;
+	size_t old_submitted_at_event;
+	size_t new_timestamp_at_event;
+	size_t old_timestamp_at_event;
 
 	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuLaunchKernel, f, gridDimX, gridDimY, gridDimZ,
 			blockDimX, blockDimY, blockDimZ,
 			sharedMemBytes, hStream, kernelParams, extra);
 
-	if ((atomic_fetch_add_explicit(&submitted, 1, memory_order_relaxed) + 1) % CUDA_EVENT_BATCH_SIZE == 0) {
+	new_submitted_at_event = atomic_fetch_add_explicit(&submitted, 1, memory_order_release) + 1;
+	old_submitted_at_event = atomic_load_explicit(&submitted_at_event, memory_order_acquire);
+	new_timestamp_at_event = gettime_ms();
+	old_timestamp_at_event = atomic_load_explicit(&timestamp_at_event, memory_order_acquire);
+	if (new_timestamp_at_event > old_timestamp_at_event + CUDA_EVENT_INTERVAL_MS &&
+			atomic_compare_exchange_strong(&timestamp_at_event, &old_timestamp_at_event, new_timestamp_at_event)) {
 		if (rb_enqueue_start(&g_event_rb, &elem, true) != 0)
  			fprintf(stderr, "rb_enqueue: Unknown error\n");
 
@@ -126,8 +138,10 @@ CUresult cuLaunchKernel(const void* f,
 			fprintf(stderr, "cuDeviceGetUuid: error code %d\n", ret);
 
 		elem->uuid = uuid;
+		elem->submitted_during_event = new_submitted_at_event - old_submitted_at_event;
 
-		if (g_uvmfd >= 0 && update_event_count(g_uvmfd, uuid, UVM_SUBMIT_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, CUDA_EVENT_BATCH_SIZE) < 0) {
+		if (g_uvmfd >= 0 &&
+				update_event_count(g_uvmfd, uuid, UVM_SUBMIT_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, elem->submitted_during_event) < 0) {
 			fprintf(stderr, "update_event_count: unknown reason\n");
 		}
 
@@ -135,6 +149,9 @@ CUresult cuLaunchKernel(const void* f,
 
 		if (rb_enqueue_end(&g_event_rb, elem) != 0)
 			fprintf(stderr, "rb_enqueue_end: Unknown error\n");
+
+		if (atomic_fetch_add_explicit(&submitted_at_event, elem->submitted_during_event, memory_order_release) != old_submitted_at_event)
+			fprintf(stderr, "atomic_fetch_add_explicit: Unknown error\n");
 	}
 
 	return ret;
@@ -196,12 +213,6 @@ CUresult cuGetProcAddress_v2(const char *symbol, void **pfn, int cudaVersion, cu
 static pthread_t event_thread;
 static volatile bool running;
 
-size_t gettime_ms(void) {
-	struct timespec ts;
-	clock_gettime(CLOCK_REALTIME, &ts);
-	return (size_t)(ts.tv_sec) * 1000 + (ts.tv_nsec) / 1000000;
-}
-
 static void *event_handler(void *arg) {
 	struct ringbuffer *rb = (struct ringbuffer *)arg;
 	struct ringbuffer_element *elem = NULL;
@@ -216,7 +227,7 @@ static void *event_handler(void *arg) {
 			if (CUDA_ENTRY_CALL(cuda_library_entry, cuEventQuery, elem->event) != CUDA_SUCCESS)
 				break;
 
-			if (g_uvmfd >= 0 && update_event_count(g_uvmfd, elem->uuid, UVM_END_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, CUDA_EVENT_BATCH_SIZE) < 0) {
+			if (g_uvmfd >= 0 && update_event_count(g_uvmfd, elem->uuid, UVM_END_KERNEL_EVENT, UVM_ADD_EVENT_COUNT, elem->submitted_during_event) < 0) {
 				fprintf(stderr, "update_event_count: unknown reason\n");
 			}
 

@@ -131,4 +131,10 @@ int update_event_count(int uvmfd, CUuuid uuid, UVM_EVENT_TYPE type, UVM_UPDATE_E
 	return 0;
 }
 
+size_t gettime_ms(void) {
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return (size_t)(ts.tv_sec) * 1000 + (ts.tv_nsec) / 1000000;
+}
+
 #endif
