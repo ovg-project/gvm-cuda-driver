@@ -73,7 +73,7 @@ CUresult cuMemAlloc(void **devPtr, size_t size) {
 		return CUDA_ERROR_OUT_OF_MEMORY;
 	}
 
-	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuMemAlloc_v2, devPtr, size);
+	ret = CUDA_ENTRY_CALL(cuda_library_entry, cuMemAllocManaged, devPtr, size, CU_MEM_ATTACH_GLOBAL);
 	if (ret != CUDA_SUCCESS) {
 		fprintf(stderr, "[INTERCEPTOR] cuMemAllocManaged: out of memory.\n");
 		return ret;
