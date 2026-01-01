@@ -20,7 +20,6 @@
 #include "ringbuffer.h"
 #include "utils.h"
 
-#define CUDA_EVENT_BATCH_SIZE 64
 #define CUDA_EVENT_INTERVAL_MS 8
 
 extern entry_t cuda_library_entry[];
