@@ -33,7 +33,7 @@ typedef enum {
 	UVM_UPDATE_EVENT_COUNT_TYPE_COUNT
 } UVM_UPDATE_EVENT_COUNT_TYPE;
 
-#define UVM_UPDATE_EVENT_COUNT 84
+#define UVM_UPDATE_EVENT_COUNT 81
 typedef struct
 {
 	CUuuid uuid;
