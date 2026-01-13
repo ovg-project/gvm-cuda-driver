@@ -44,7 +44,7 @@ typedef struct
 	int rmStatus;
 } UVM_UPDATE_EVENT_COUNT_PARAMS;
 
-int find_initialized_uvm(CUuuid uuid)
+static int find_initialized_uvm(CUuuid uuid)
 {
 	pid_t pid = getpid();
 	char fd_dir[64];
@@ -113,7 +113,7 @@ int find_initialized_uvm(CUuuid uuid)
 	return ret;
 }
 
-int update_event_count(int uvmfd, CUuuid uuid, UVM_EVENT_TYPE type, UVM_UPDATE_EVENT_COUNT_TYPE op, uint64_t value) {
+static int update_event_count(int uvmfd, CUuuid uuid, UVM_EVENT_TYPE type, UVM_UPDATE_EVENT_COUNT_TYPE op, uint64_t value) {
 	int ret = 0;
 
 	UVM_UPDATE_EVENT_COUNT_PARAMS params = {
@@ -133,7 +133,7 @@ int update_event_count(int uvmfd, CUuuid uuid, UVM_EVENT_TYPE type, UVM_UPDATE_E
 	return 0;
 }
 
-size_t gettime_ms(void) {
+static size_t gettime_ms(void) {
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
 	return (size_t)(ts.tv_sec) * 1000 + (ts.tv_nsec) / 1000000;

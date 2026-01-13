@@ -7,9 +7,7 @@
 #include <stddef.h>
 #include <stdatomic.h>
 
-#include "subset.h"
-
-extern entry_t cuda_library_entry[];
+#include <cuda.h>
 
 struct ringbuffer_element {
 	CUevent event;
@@ -32,7 +30,7 @@ static inline void rb_pause(void)
 	sched_yield();
 }
 
-int rb_init(struct ringbuffer *rb, size_t size, char *name)
+static int rb_init(struct ringbuffer *rb, size_t size, char *name)
 {
 	if (!rb || size == 0)
 		return -1;
@@ -51,7 +49,7 @@ int rb_init(struct ringbuffer *rb, size_t size, char *name)
 	return 0;
 }
 
-int rb_enqueue_start(struct ringbuffer *rb,
+static int rb_enqueue_start(struct ringbuffer *rb,
 					 struct ringbuffer_element **out_elem,
 					 bool blocking)
 {
@@ -94,7 +92,7 @@ int rb_enqueue_start(struct ringbuffer *rb,
 
 		// Create events; leave valid=false so consumer won't see it yet.
 		CUresult res;
-		res = CUDA_ENTRY_CALL(cuda_library_entry, cuEventCreate, &elem->event, 0x0);
+		res = cuEventCreate_IMPL(&elem->event, 0x0);
 		if (res != CUDA_SUCCESS) {
 			// If you want softer failure, return an error instead of abort.
 			abort();
@@ -107,7 +105,7 @@ int rb_enqueue_start(struct ringbuffer *rb,
 	}
 }
 
-int rb_enqueue_end(struct ringbuffer *rb,
+static int rb_enqueue_end(struct ringbuffer *rb,
 				   struct ringbuffer_element *elem)
 {
 	(void)rb; // not strictly needed, but kept for symmetry / future
@@ -116,7 +114,7 @@ int rb_enqueue_end(struct ringbuffer *rb,
 	return 0;
 }
 
-int rb_peek(struct ringbuffer *rb,
+static int rb_peek(struct ringbuffer *rb,
 			struct ringbuffer_element **out_elem,
 			bool blocking)
 {
@@ -155,7 +153,7 @@ int rb_peek(struct ringbuffer *rb,
 	}
 }
 
-int rb_dequeue(struct ringbuffer *rb,
+static int rb_dequeue(struct ringbuffer *rb,
 				   struct ringbuffer_element *elem)
 {
 	if (!rb || !rb->array || !elem)
@@ -173,7 +171,7 @@ int rb_dequeue(struct ringbuffer *rb,
 	// At this point, consumer has presumably already used the events
 	// (cuEventElapsedTime, cuEventSynchronize, etc.).
 	if (slot->event)
-		CUDA_ENTRY_CALL(cuda_library_entry, cuEventDestroy, slot->event);
+		cuEventDestroy_IMPL(slot->event);
 
 	slot->event = NULL;
 
@@ -185,13 +183,13 @@ int rb_dequeue(struct ringbuffer *rb,
 	return 0;
 }
 
-size_t rb_size(struct ringbuffer *rb) {
+static size_t rb_size(struct ringbuffer *rb) {
 	size_t write = atomic_load_explicit(&rb->write_index, memory_order_acquire);
 	size_t read  = atomic_load_explicit(&rb->read_index, memory_order_acquire);
 	return write - read;
 }
 
-void rb_deinit(struct ringbuffer *rb)
+static void rb_deinit(struct ringbuffer *rb)
 {
 	if (!rb || !rb->array)
 		return;
@@ -207,10 +205,10 @@ void rb_deinit(struct ringbuffer *rb)
 		// Wait for events to complete; user wanted deinit to "wait for all valid
 		// events". We wait on end; adjust if you also want start.
 		if (elem->event)
-			CUDA_ENTRY_CALL(cuda_library_entry, cuEventSynchronize, elem->event);
+			cuEventSynchronize_IMPL(elem->event);
 
 		if (elem->event)
-			CUDA_ENTRY_CALL(cuda_library_entry, cuEventDestroy, elem->event);
+			cuEventDestroy_IMPL(elem->event);
 
 		elem->event = NULL;
 		atomic_store_explicit(&elem->valid, false, memory_order_relaxed);
@@ -223,7 +221,7 @@ void rb_deinit(struct ringbuffer *rb)
 	atomic_store_explicit(&rb->write_index, 0, memory_order_relaxed);
 }
 
-bool rb_elem_is_valid(const struct ringbuffer_element *elem) {
+static bool rb_elem_is_valid(const struct ringbuffer_element *elem) {
 	return atomic_load_explicit(&elem->valid, memory_order_acquire);
 }
 
