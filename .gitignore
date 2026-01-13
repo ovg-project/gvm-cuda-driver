@@ -3,3 +3,5 @@ libcuda.so.1
 
 /build
 /install
+
+/GVMCUDADriverBuildEnv

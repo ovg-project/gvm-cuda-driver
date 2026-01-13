@@ -1,6 +1,20 @@
 # Intercept Layer for NVIDIA CUDA Driver
 This is the source release of the Intercept Layer for NVIDIA CUDA Driver, tested with CUDA Driver 12.9 and GPU Driver 575.57.08.
 
+## Requirements
+1. gcc
+2. nvcc
+3. make
+4. python3
+5. python3-venv
+
+## Setup build environment
+```
+python3 -m venv GVMCUDADriverBuildEnv
+source GVMCUDADriverBuildEnv/bin/activate
+pip3 install lief
+```
+
 ## How to build
 Easiest way to build:
 ```
@@ -12,7 +26,7 @@ To specify output dir of build:
 make BUILD=<path to dir>
 ```
 
-To specify CUDA driver the Intercept Layer is attaching to:
+To specify CUDA driver the intercept layer is attaching to:
 ```
 make CUDA=<path to cuda driver>
 ```
@@ -29,7 +43,7 @@ make install INSTALL=<path to dir>
 ```
 Note that is will first backup libcuda.so if exists in specified install dir, then remove all symlinks to the existing cuda driver in that driver if exists.
 
-To specify CUDA driver the Intercept Layer is attaching to:
+To specify CUDA driver the intercept layer is attaching to:
 ```
 make install CUDA=<path to cuda driver>
 ```
@@ -42,7 +56,7 @@ sudo make install INSTALL=$(dirname $(whereis libcuda.so | awk '{print $2}'))
 You should be able to work with any CUDA programs.
 We've tested with `vllm`, `sglang`, `diffuser`, `llama-factory`, `llama.cpp`.
 
-If you choose to put Intercept Layer somewhere else to keep your system clean:
+If you choose to put intercept layer somewhere else to keep your system clean:
 ```
 make install INSTALL=<path to dir>
 ```
