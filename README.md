@@ -7,6 +7,7 @@ This is the source release of the GVM Intercept Layer for NVIDIA CUDA Driver, te
 3. make
 4. python3
 5. python3-venv
+6. patchelf
 
 ## Setup build environment
 ```
