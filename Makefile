@@ -3,6 +3,7 @@ BUILD ?= build
 
 # Default INSTALL, user can override: make INSTALL=ins
 INSTALL ?= install
+INSTALL := $(abspath $(INSTALL))
 
 ifneq ($(MAKECMDGOALS),clean)
 # CUDA: user can override, otherwise auto-detect with whereis
